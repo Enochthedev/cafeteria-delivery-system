@@ -11,8 +11,8 @@ import { LogStatus } from '../enums/enum';
 export class HeadersMiddleware extends BaseMiddleware {
   private _logger: Logger;
   private _validHeaderClients: string[] = [
-    'collabo.ng',
-    'www.collabo.ng',
+    'mealRelay.ng',
+    'www.mealRelay.ng',
   ];
 
   constructor(@inject(LIB_TYPES.Logger) private logger: Logger) {
@@ -23,13 +23,13 @@ export class HeadersMiddleware extends BaseMiddleware {
   public handler(req: Request, res: Response, next: NextFunction) {
     this._logger.info(`${req.method} ${req.path}`);
 
-    const clientHeader = req.headers['x-collabo-client'] as string;
+    const clientHeader = req.headers['x-mealRelay-client'] as string;
 
     if (!clientHeader || !this._validHeaderClients.includes(clientHeader)) {
       const payload: ILog = {
         action: 'AUTHORIZATION_USER',
         data: undefined,
-        description: 'Invalid collabo client',
+        description: 'Invalid mealRelay client',
         ipAddress: String(req.headers['x-forwarded-for']) || req.ip,
         userAgent: req.get('User-Agent') as string,
         timestamp: new Date().toUTCString(),
@@ -48,7 +48,7 @@ export class HeadersMiddleware extends BaseMiddleware {
         requestId: payload.requestId,
         error: {
           code: 400,
-          message: 'Invalid collabo client',
+          message: 'Invalid mealRelay client',
         },
       }
 

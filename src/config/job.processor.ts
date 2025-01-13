@@ -30,7 +30,7 @@ export async function processJobs(job: Job<JobData>, mailClient: MailClient, sto
         const htmlPath = join(process.cwd(), './emails/verify-email.html');
         const html = await readFileAsync(htmlPath, 'utf8');
         const template = Handlebars.compile(html);
-        const subject = 'Welcome to Collabo.ng🥳 - Verify your Account';
+        const subject = 'Welcome to mealRelay.ng🥳 - Verify your Account';
         const mail = template({
           name: name,
           otp: otp,
@@ -60,7 +60,7 @@ export async function processJobs(job: Job<JobData>, mailClient: MailClient, sto
         const htmlPath = join(process.cwd(), './emails/welcome-email.html');
         const html = await readFileAsync(htmlPath, 'utf8');
         const template = Handlebars.compile(html);
-        const subject = 'Welcome to Collabo.ng🥳 - Your thriving career begins here...';
+        const subject = 'Welcome to mealRelay.ng🥳 - Your thriving career begins here...';
         const mail = template({
           // name: name,
           year: new Date().getFullYear(),
@@ -107,7 +107,7 @@ export async function processJobs(job: Job<JobData>, mailClient: MailClient, sto
         const subject = 'Your Password has been Successfully Reset👍';
         const mail = template({
           name: name,
-          loginUrl: 'https://collabo.ng/login',
+          loginUrl: 'https://mealRelay.ng/login',
           year: new Date().getFullYear(),
         });
 

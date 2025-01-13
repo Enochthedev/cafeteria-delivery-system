@@ -25,13 +25,13 @@ export class MailClient {
     try {
       const info = await this.transporter.sendMail({
         from: {
-          name: 'Collabo',
-          address: 'no-reply@collabo.ng',
+          name: 'mealRelay',
+          address: 'no-reply@mealRelay.ng',
         },
         to,
         subject,
         html: html,
-        replyTo: 'no-reply@collabo.ng',
+        replyTo: 'no-reply@mealRelay.ng',
       });
 
       this._logger.info(`sent using nodemailer: ${info.messageId}`);

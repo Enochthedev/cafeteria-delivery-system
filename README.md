@@ -1,14 +1,14 @@
-# Collabo Backend
+# mealRelay Backend
 
-![Collabo Logo](https://yourcompany.com/logo.png)
+![mealRelay Logo](https://yourcompany.com/logo.png)
 
-**Collabo** is a collaborative platform designed to help users save money by enabling group shopping experiences. By bringing people together to make joint purchases, Collabo leverages bulk buying power to secure exclusive discounts and deals, making shopping more affordable and enjoyable for everyone.
+**mealRelay** is a mealRelayrative platform designed to help users save money by enabling group shopping experiences. By bringing people together to make joint purchases, mealRelay leverages bulk buying power to secure exclusive discounts and deals, making shopping more affordable and enjoyable for everyone.
 
 ---
 
 ## 📚 Table of Contents
 
-- [Collabo Backend](#collabo-backend)
+- [mealRelay Backend](#mealRelay-backend)
   - [📖 Table of Contents](#-table-of-contents)
   - [🚀 Getting Started](#-getting-started)
     - [Prerequisites](#prerequisites)
@@ -51,8 +51,8 @@ Before you begin, ensure you have met the following requirements:
 1. **Clone the Repository**
 
    ```bash
-   git clone https://github.com/yourorganization/collabo-backend.git
-   cd collabo-backend
+   git clone https://github.com/yourorganization/mealRelay-backend.git
+   cd mealRelay-backend
    ```
 
 2. **Install Dependencies**
@@ -83,7 +83,7 @@ Ensure that all necessary environment variables are set in the .env file. Below 
 
 ```properties
 PORT=5000
-DATABASE_URL=mongodb://localhost:27017/collabo
+DATABASE_URL=mongodb://localhost:27017/mealRelay
 JWT_SECRET=your_jwt_secret
 API_KEY=your_api_key
 ```
@@ -204,8 +204,8 @@ Please read our Code of Conduct to understand the expectations for behavior in o
 2. **Clone Your Fork**
 
    ```bash
-   git clone https://github.com/yourusername/collabo-backend.git
-   cd collabo-backend
+   git clone https://github.com/yourusername/mealRelay-backend.git
+   cd mealRelay-backend
    ```
 
 3. **Create a New Branch**
@@ -245,7 +245,7 @@ Please read our Code of Conduct to understand the expectations for behavior in o
 Here’s an overview of the project’s directory structure:
 
 ```
-collabo-backend/
+mealRelay-backend/
 ├── src/
 │   ├── controllers/
 │   ├── models/
@@ -298,13 +298,13 @@ This project is licensed under the MIT License.
 
 ## 📞 Contact
 
-For any inquiries or support, please reach out to support@collabo.com.ng
+For any inquiries or support, please reach out to support@mealRelay.com.ng
 
 ## 📑 Resources
 
-- **Onboarding Documentation:** [Collabo Backend Onboarding](https://your-notion-link.com/onboarding) | [Google Docs Onboarding](https://docs.google.com)
+- **Onboarding Documentation:** [mealRelay Backend Onboarding](https://your-notion-link.com/onboarding) | [Google Docs Onboarding](https://docs.google.com)
 - **API Documentation:** [Swagger Docs](https://your-swagger-docs-link.com)
-- **Issue Tracker:** [GitHub Issues](https://github.com/yourorganization/collabo-backend/issues)
+- **Issue Tracker:** [GitHub Issues](https://github.com/yourorganization/mealRelay-backend/issues)
 - **Project Management:** [Notion Workspace](https://your-notion-link.com/workspace)
 - **Codebase Overview:** [Architecture Overview](https://your-architecture-overview-link.com)
 
@@ -314,7 +314,7 @@ For any inquiries or support, please reach out to support@collabo.com.ng
 
 ### 🔒 Security
 
-Please report any security vulnerabilities to security@collabo.com. We take all reports seriously and will address them promptly.
+Please report any security vulnerabilities to security@mealRelay.com. We take all reports seriously and will address them promptly.
 
 ### 📄 Contributing Guidelines
 
