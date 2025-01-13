@@ -23,35 +23,18 @@ const WalletSchema: Schema<IWalletDocument> = new Schema<IWalletDocument>(
     },
     currency: {
       type: String,
-      default: 'USD', // Default currency
+      default: 'NGN', // Default currency
       required: true,
     },
-    transactions: [
-      {
-        type: {
-          type: String,
-          enum: TransactionType,
-          required: true,
+    transactions: {
+      type: [
+        {
+          type: Schema.Types.ObjectId,
+          ref: 'Transaction',
         },
-        amount: {
-          type: Number,
-          required: true,
-        },
-        currency: {
-          type: String,
-          required: true,
-        },
-        description: {
-          type: String,
-          required: true,
-        },
-        status: {
-          type: String,
-          enum: TransactionStatus,
-          default: TransactionStatus.PENDING,
-        },
-      },
-    ],
+      ],
+      default: [],
+    }
   },
   {
     timestamps: true,
