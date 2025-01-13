@@ -10,8 +10,14 @@ export interface IUser extends Document, SchemaTimestampsConfig {
     type: string;
     coordinates: [number, number]; // [longitude, latitude]
   };
-  country: string;
-  preferredPlatforms: Types.ObjectId;
+  campus: string;
+  department: string;
+  level: number;
+  idCardData: {
+    front: string;
+    back: string;
+  };
+  hostel: string;
   wallet: Types.ObjectId;
   hiddenRating: {
     paymentSpeed: number;
@@ -41,6 +47,30 @@ const UserSchema: Schema<IUser> = new Schema<IUser>(
       unique: true,
       trim: true,
     },
+    campus: {
+      type: String,
+      required: true,
+    },
+    department: {
+      type: String,
+      required: true,
+    },
+    level: {
+      type: Number,
+      required: true,
+    },
+    idCardData: {
+      type: {
+        front: {
+          type: String,
+          required: true,
+        },
+        back: {
+          type: String,
+          required: true,
+        },
+      },
+    },
     email: {
       type: String,
       required: true,
@@ -66,13 +96,9 @@ const UserSchema: Schema<IUser> = new Schema<IUser>(
         required: true,
       },
     },
-    country: {
+    hostel: {
       type: String,
       required: true,
-    },
-    preferredPlatforms: {
-      type: Schema.Types.ObjectId,
-      default: [], // e.g., ['AliExpress', 'Amazon', 'eBay']
     },
     wallet: {
       type: Schema.Types.ObjectId
