@@ -1,11 +1,11 @@
-import { IsEmail, IsString } from 'class-validator';
+import { IsString, IsEmail, IsOptional, IsNumber, IsObject, IsArray, IsBoolean } from 'class-validator';
 
 export class CreateUserDto {
-  @IsString({ message: 'firstName is required' })
-  readonly firstName?: string;
+  @IsString({ message: 'username is required' })
+  readonly username: string;
 
-  @IsString({ message: 'lastName is required' })
-  readonly lastName?: string;
+  @IsString({ message: 'matricNumber is required' })
+  readonly matricNumber: string;
 
   @IsEmail({}, { message: 'email is required' })
   readonly email: string;
@@ -13,25 +13,45 @@ export class CreateUserDto {
   @IsString({ message: 'password is required' })
   readonly password: string;
 
-  @IsString({ message: 'callingCode is required' })
-  readonly callingCode: number;
+  @IsString({ message: 'phoneNumber must be a string' })
+  @IsOptional()
+  readonly phoneNumber?: string;
 
-  @IsString({ message: 'nationalNumber is required' })
-  readonly nationalNumber: string;
-}
+  @IsString({ message: 'campus is required' })
+  readonly campus: string;
 
-export class UpdatePhoneNumberDto implements Readonly<any> {
-  @IsString({ message: 'callingCode is required' })
-  readonly callingCode: number;
+  @IsString({ message: 'department is required' })
+  readonly department: string;
 
-  @IsString({ message: 'nationalNumber is required' })
-  readonly nationalNumber: string;
-}
+  @IsNumber({}, { message: 'level must be a number' })
+  readonly level: number;
 
-export class UpdatePasswordDto implements Readonly<any> {
-  @IsString({ message: 'oldPassword is required' })
-  readonly oldPassword: string;
+  @IsString({ message: 'hostel is required' })
+  readonly hostel: string;
 
-  @IsString({ message: 'newPassword is required' })
-  readonly newPassword: string;
+  @IsString({ message: 'referralCode must be a string' })
+  @IsOptional()
+  readonly referralCode?: string;
+
+  @IsString({ message: 'referredBy must be a string' })
+  @IsOptional()
+  readonly referredBy?: string;
+
+  @IsString({ message: 'profileImage must be a string' })
+  @IsOptional()
+  readonly profileImage?: string;
+
+  // let's work on the location 
+  @IsObject({ message: 'location must be an object' })
+  readonly location: {
+    readonly longitude: string;
+    readonly latitude: string;
+  };
+
+  // let's work on the idCardData
+  @IsObject({ message: 'idCardData must be an object' })
+  readonly idCardData: {
+    readonly front: string;
+    readonly back: string;
+  };
 }

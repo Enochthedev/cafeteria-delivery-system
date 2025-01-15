@@ -13,10 +13,7 @@ export interface IUser extends Document, SchemaTimestampsConfig {
   campus: string;
   department: string;
   level: number;
-  idCardData: {
-    front: string;
-    back: string;
-  };
+  idCardData: Types.ObjectId;
   hostel: string;
   wallet: Types.ObjectId;
   hiddenRating: {
@@ -60,16 +57,9 @@ const UserSchema: Schema<IUser> = new Schema<IUser>(
       required: true,
     },
     idCardData: {
-      type: {
-        front: {
-          type: String,
-          required: true,
-        },
-        back: {
-          type: String,
-          required: true,
-        },
-      },
+      type: Schema.Types.ObjectId,
+      ref: 'IdCard',
+      required: true,
     },
     email: {
       type: String,
