@@ -1,8 +1,10 @@
-import { Document, model, Model, Schema, SchemaTimestampsConfig, SchemaType, Types } from 'mongoose';
+import { Document, model, Model, Schema, SchemaTimestampsConfig, Types, HydratedDocument } from 'mongoose';
 
 export interface IUser extends Document, SchemaTimestampsConfig {
   username: string;
   matricNumber: string;
+  firstName: string;
+  lastName: string;
   email: string;
   password: string;
   phoneNumber?: string;
@@ -27,7 +29,14 @@ export interface IUser extends Document, SchemaTimestampsConfig {
   referredBy?: string; // User ID
   betaUser: boolean;
   profileImage?: string;
+  verifiedAt?: Date;
+  passwordHistory: string[];
+  lastPasswordChange: Date;
+  failedLoginAttempts: number;
+  accountLockedUntil?: Date;
 }
+
+export type UserDocument = HydratedDocument<IUser>;
 
 // Define the User Schema
 const UserSchema: Schema<IUser> = new Schema<IUser>(
@@ -36,6 +45,16 @@ const UserSchema: Schema<IUser> = new Schema<IUser>(
       type: String,
       required: true,
       unique: true,
+      trim: true,
+    },
+    firstName: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    lastName: {
+      type: String,
+      required: true,
       trim: true,
     },
     matricNumber: {
@@ -138,6 +157,25 @@ const UserSchema: Schema<IUser> = new Schema<IUser>(
     profileImage: {
       type: String, // URL to the image
     },
+    verifiedAt: {
+      type: Date,
+    },
+    passwordHistory: {
+      type: [String],
+      default: [],
+      select: false
+    },
+    lastPasswordChange: {
+      type: Date,
+      default: Date.now,
+    },
+    failedLoginAttempts: {
+      type: Number,
+      default: 0,
+    },
+    accountLockedUntil: {
+      type: Date,
+    }
   },
   {
     timestamps: true, // Automatically adds createdAt and updatedAt fields
@@ -148,5 +186,5 @@ const UserSchema: Schema<IUser> = new Schema<IUser>(
 UserSchema.index({ location: '2dsphere' });
 
 // Define and export the User model
-const User: Model<IUser> = model<IUser>('User', UserSchema);
-export default User;
+const User: Model<UserDocument> = model<UserDocument>('User', UserSchema);
+export { User };  

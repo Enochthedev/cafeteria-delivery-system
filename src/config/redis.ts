@@ -116,4 +116,30 @@ export class RedisClient {
     this._logger.info('redis connection closed');
   }
 
+  public async deleteUserSessions(userId: string): Promise<number> {
+    try {
+      const pattern = `${userId}:session-*`;
+      const keys = await this._client.keys(pattern);
+      
+      if (keys.length === 0) return 0;
+      
+      const deletedCount = await this._client.del(...keys);
+      this._logger.info(`Deleted ${deletedCount} sessions for user ${userId}`);
+      return deletedCount;
+    } catch (error) {
+      this._logger.error('Failed to delete user sessions', { error, userId });
+      throw new Error('Failed to clear user sessions');
+    }
+  }
+
+  public async getUserSessionKeys(userId: string): Promise<string[]> {
+    try {
+      const pattern = `${userId}:session-*`;
+      return await this._client.keys(pattern);
+    } catch (error) {
+      this._logger.error('Failed to get user sessions', { error, userId });
+      return [];
+    }
+  }
+
 }

@@ -1,28 +1,46 @@
 import { inject, injectable } from 'inversify';
-import { LIB_TYPES, SERVICE_TYPES } from '../../../di/types';
+import { Connection, Types } from 'mongoose';
+import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
+
+// Config & Utilities
+import env from '../../../config/env';
 import { Database } from '../../../config/db';
-import { RedisClient } from '../../../config/redis';
 import { Logger } from '../../../config/logger';
-import { LoginDto } from '../dto/login.dto';
-import { UserService } from '../../users/user.service';
+import Default from '../../defaults/default';
+import { RedisClient } from '../../../config/redis';
+import { SecurityUtils } from '../../../common/utils/security.utils';
+
+// Interfaces & Types
 import { IAuthRecord, ILog } from '../../../interfaces/interfaces';
 import { LogStatus, RedisJob, TokenType } from '../../../enums/enum';
-import { Exception } from '../../../internal/exception';
-import bcrypt from 'bcryptjs';
-import env from '../../../config/env';
-import Default from '../../defaults/default';
+
+// Services & Models
+import { UserService } from '../../users/user.service';
+import { TokenService } from './token.service';
+import { User, UserDocument } from '../../users/models/user.model';
 import { Token, TokenDocument } from '../models/token.model';
+
+// DTOs
+import { LoginDto } from '../dto/login.dto';
 import { ResetPasswordDto, TokenDto } from '../dto/token.dto';
 import { ForgotPasswordDto } from '../dto/forgot-password.dto';
-import jwt from 'jsonwebtoken';
-import { Connection, Types } from 'mongoose';
-import { User, UserDocument } from '../../users/models/user.model';
-import { TokenService } from './token.service';
+
+// Constants
+import { LIB_TYPES, SERVICE_TYPES } from '../../../di/types';
+import { Exception } from '../../../internal/exception';
+import { userInfo } from 'os';
+
 
 @injectable()
 export class AuthService {
   private readonly _conn: Connection;
 
+  private readonly SESSION_EXPIRATION = 20 * 60; // 20 minutes in seconds
+  private readonly OTP_EXPIRATION_MINUTES = 20;
+  private readonly PASSWORD_RESET_EXPIRATION = 20; // minutes 
+  private readonly MAX_PASSWORD_RESET_ATTEMPTS = 5;
   constructor(
     @inject(SERVICE_TYPES.UserService) private readonly _userService: UserService,
     @inject(SERVICE_TYPES.TokenService) private readonly _tokenService: TokenService,
@@ -33,468 +51,653 @@ export class AuthService {
     this._conn = this._db.connection;
   }
 
+  private createSession(user: UserDocument) {
+    const lastLogin = Date.now();
+    const accessToken = Default.GENERATE_ACCESS_TOKEN(
+      user.id,
+      user.email,
+      lastLogin
+    );
+
+    const sessionKey = `${user.id}:session-${lastLogin}`;
+    this._redis.client.setex(sessionKey, this.SESSION_EXPIRATION, accessToken);
+
+    return { token: accessToken, sessionKey };
+  }
+
+  private logSecurityEvent(params: {
+    status: LogStatus;
+    description: string;
+    details: Record<string, any>;
+    context: Record<string, any>;
+  }) {
+    const logEntry: ILog = {
+      service: 'auth',
+      action: params.context.operation,
+      status: params.status,
+      timestamp: params.context.timestamp,
+      ipAddress: params.context.ipAddress,
+      userAgent: params.context.userAgent,
+      requestId: params.context.requestId,
+      description: params.description,
+      details: {
+        ...params.details,
+        serviceVersion: env.api_version,
+        environment: env.node_env
+      }
+    };
+
+    switch (params.status) {
+      case LogStatus.SUCCESS:
+        this._logger.info(params.description, logEntry);
+        break;
+      case LogStatus.FAILED:
+        this._logger.warn(params.description, logEntry);
+        break;
+      default:
+        this._logger.debug(params.description, logEntry);
+    }
+  }
+
+  private handleAuthError(error: any): Error {
+    if (error instanceof Exception) return error;
+    return new Exception('Authentication failed', Exception.SERVER_ERROR);
+  }
+
+
   public async login(
     dto: LoginDto,
-    ipAddress: string,
-    userAgent: string,
-    timestamp: string,
-    requestId: string,
+    context: { ipAddress: string; userAgent: string; timestamp: string; requestId: string }
   ) {
-    const user: UserDocument | null = await this._userService.findOne({ email: dto.email });
-    if (!user) {
-      const payload: ILog = {
-        action: 'LOGIN',
-        data: undefined,
-        status: LogStatus.FAILED,
-        timestamp: timestamp,
-        ipAddress: ipAddress,
-        userAgent: userAgent,
-        requestId: requestId,
-        description: 'failed to login - user not found',
-        details: { email: dto.email },
-      };
-      this._logger.error(payload.description, payload);
-      throw new Exception('Invalid email or password', Exception.UNPROCESSABLE_ENTITY);
-    }
-
-    const doPasswordsMatch: boolean = await this._userService.comparePassword(dto.password, user.password);
-    if (!doPasswordsMatch) {
-      const payload: ILog = {
-        action: 'LOGIN',
-        data: undefined,
-        status: LogStatus.FAILED,
-        timestamp: timestamp,
-        ipAddress: ipAddress,
-        userAgent: userAgent,
-        requestId: requestId,
-        description: 'failed to login - invalid password',
-        details: { email: dto.email },
-      };
-      this._logger.error(payload.description, payload);
-      throw new Exception('Invalid email or password', Exception.UNPROCESSABLE_ENTITY);
-    }
-
-    const lastLogin = Date.now();
-    const accessToken = Default.GENERATE_ACCESS_TOKEN(user.id, user.email, lastLogin);
-
-    await this._redis.client.set(`${user.id}:session-${lastLogin}`, accessToken, 'EX', 20 * 60);
-
-    return {
-      id: user.id,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      email: user.email,
-      // avatar: 'avatar_key' in profile && profile.avatar_key !== null ? Default.FORMAT_AWS_S3_URL(env.aws_s3_public_bucket, String(profile.avatar_key)) : null,
-      isVerified: user.verifiedAt !== null,
-      token: accessToken,
+    const logContext = {
+      service: 'auth',
+      operation: 'login',
+      ...context,
+      email: dto.email // Never log passwords
     };
+
+    try{
+      this._logger.debug('Login attempt initiated', logContext);
+      const user: UserDocument | null = await this._userService.findOne({ email: dto.email });
+      if (!user) {
+        this.logSecurityEvent({
+          status: LogStatus.FAILED,
+          description: 'Authentication failure: User not found',
+          details: { email: dto.email },
+          context: logContext
+        });
+        throw new Exception('Invalid email or password', Exception.UNPROCESSABLE_ENTITY);
+      }
+
+      const doPasswordsMatch: boolean = await this._userService.comparePassword(dto.password, user.password);
+      if (!doPasswordsMatch) {
+        this.logSecurityEvent({
+          status: LogStatus.FAILED,
+          description: 'Authentication failure: Invalid credentials',
+          details: { userId: user.id },
+          context: logContext
+        });
+        throw new Exception('Invalid credentials', Exception.UNAUTHORIZED);
+      }
+
+      const { token, sessionKey } = this.createSession(user);
+      
+      this.logSecurityEvent({
+        status: LogStatus.SUCCESS,
+        description: 'Authentication successful',
+        details: { userId: user.id },
+        context: logContext
+      });
+
+      const lastLogin = Date.now();
+
+      return {
+        id: user.id,
+        username: user.username,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        matricNumber: user.matricNumber,
+        email: user.email,
+        profileImage: user.profileImage,
+        isVerified: !!user.verifiedAt,
+        token: token,
+      };
+    } catch (error) {
+      this.logSecurityEvent({
+        status: LogStatus.FAILED,
+        description: 'Authentication system error',
+        details: { error: error.message },
+        context: logContext
+      });
+      throw this.handleAuthError(error);
+    }
   }
 
   public async startEmailVerification(
     record: IAuthRecord,
-    ipAddress: string,
-    userAgent: string,
-    timestamp: string,
-    requestId: string,
+    context: { ipAddress: string; userAgent: string; timestamp: string; requestId: string }
   ): Promise<Record<string, string>> {
-    const user: UserDocument | null = await this._userService.findOne({ id: record.id });
-    if (!user) {
-      const payload: ILog = {
-        action: 'START_EMAIL_VERIFICATION',
-        data: undefined,
-        status: LogStatus.FAILED,
-        timestamp: timestamp,
-        ipAddress: ipAddress,
-        userAgent: userAgent,
-        requestId: requestId,
-        description: 'failed to start email verification - user not found',
-        details: { userId: record.id },
-      };
-      this._logger.error(payload.description, payload);
-      throw new Exception('User does not exist', Exception.NOT_FOUND);
+    const logContext = {
+      service: 'auth',
+      operation: 'startEmailVerification',
+      action: 'START_EMAIL_VERIFICATION',
+      ...context
+    };
+    try{
+      const user: UserDocument | null = await this._userService.findOne({ id: record.id });
+      if (!user) {
+        this.logSecurityEvent({
+          status: LogStatus.FAILED,
+          description: 'failed to start email verification - user not found',
+          details: { userId: record.id },
+          context: logContext
+        });
+        throw new Exception('User does not exist', Exception.NOT_FOUND);
+      }
+
+      if (user.verifiedAt) {
+        this.logSecurityEvent({
+          status: LogStatus.FAILED,
+          description: 'Email verification failure: User already verified',
+          details: { userId: user.id },
+          context: logContext
+        });
+        throw new Exception('User already verified', Exception.CONFLICT);
+      }
+  
+      const otp = Default.GENERATE_OTP();
+      const token = await this._tokenService.create(
+        user.id,
+        otp,
+        TokenType.OTP,
+        this.OTP_EXPIRATION_MINUTES
+      );
+      await this._redis.addJob(RedisJob.SEND_VERIFICATION_OTP, {
+        data: {
+          name: user.firstName,
+          username: user.username,
+          matricNUmber: user.matricNumber,
+          email: user.email,
+          otp: token.token,
+          expiresIn: this.OTP_EXPIRATION_MINUTES,
+        },
+          ip: context.ipAddress,
+          userAgent: context.userAgent,
+          timestamp: context.timestamp,
+          requestId: context.requestId
+      });
+
+      this.logSecurityEvent({
+        status: LogStatus.SUCCESS,
+        description: 'Email verification initiated successfully',
+        details: { userId: user.id, email: user.email },
+        context: logContext
+      });
+
+      return { email: user.email };
     }
-
-    if (user.verifiedAt !== null) {
-      const payload: ILog = {
-        action: 'START_EMAIL_VERIFICATION',
-        data: undefined,
+    catch (error) {
+      this.logSecurityEvent({
         status: LogStatus.FAILED,
-        timestamp: timestamp,
-        ipAddress: ipAddress,
-        userAgent: userAgent,
-        requestId: requestId,
-        description: 'failed to start email verification - user is already verified',
-        details: { userId: user.id },
-      };
-      this._logger.error(payload.description, payload);
-      throw new Exception('User is already verified', Exception.UNPROCESSABLE_ENTITY);
+        description: 'Email verification system error',
+        details: { error: error.message },
+        context: logContext
+      });
+      throw this.handleAuthError(error);
     }
-
-    const token = await this._tokenService.create(user.id, Default.GENERATE_OTP(), TokenType.OTP, 20);
-
-    await this._redis.addJob(RedisJob.SEND_VERIFICATION_OTP, {
-      data: {
-        name: user.firstName,
-        email: user.email,
-        otp: token.token,
-        expiresIn: new Date(token.validTill).getMinutes() - new Date().getMinutes(),
-      },
-      ip: ipAddress,
-      userAgent: userAgent,
-      timestamp: timestamp,
-      requestId: requestId,
-    });
-
-    return { email: user.email };
   }
 
   public async completeEmailVerification(
     record: IAuthRecord,
     dto: TokenDto,
-    ipAddress: string,
-    userAgent: string,
-    timestamp: string,
-    requestId: string,
+    context: { ipAddress: string; userAgent: string; timestamp: string; requestId: string }
   ): Promise<void> {
-    const user: UserDocument | null = await this._userService.findOne({ id: record.id });
-    if (!user) {
-      const payload: ILog = {
-        action: 'COMPLETE_EMAIL_VERIFICATION',
-        data: undefined,
-        status: LogStatus.FAILED,
-        timestamp: timestamp,
-        ipAddress: ipAddress,
-        userAgent: userAgent,
-        requestId: requestId,
-        description: 'failed to complete email verification - user not found',
-        details: { userId: record.id },
-      };
-      this._logger.error(payload.description, payload);
-      throw new Exception('User does not exist', Exception.NOT_FOUND);
-    }
-
-    const token: TokenDocument | null = await Token.findOne({ token: dto.otp });
-    if (!token) {
-      const payload: ILog = {
-        action: 'COMPLETE_EMAIL_VERIFICATION',
-        data: undefined,
-        status: LogStatus.FAILED,
-        timestamp: timestamp,
-        ipAddress: ipAddress,
-        userAgent: userAgent,
-        requestId: requestId,
-        description: 'failed to complete email verification - OTP does not exist',
-        details: { userId: user.id },
-      };
-      this._logger.error(payload.description, payload);
-      throw new Exception('One-Time Passcode does not exist', Exception.NOT_FOUND);
-    }
-
-    if (new Date(token.validTill) < new Date()) {
-      const payload: ILog = {
-        action: 'COMPLETE_EMAIL_VERIFICATION',
-        data: undefined,
-        status: LogStatus.FAILED,
-        timestamp: timestamp,
-        ipAddress: ipAddress,
-        userAgent: userAgent,
-        requestId: requestId,
-        description: 'failed to complete email verification - token has expired',
-        details: { userId: user.id },
-      };
-      this._logger.error(payload.description, payload);
-
-      await Token.deleteOne({ _id: token._id });
-
-      throw new Exception('One-Time Passcode has expired', Exception.UNAUTHORIZED);
-    }
-
-    await this._conn.transaction(async trx => {
-      await User.updateOne({ _id: user._id }, { verifiedAt: new Date() }, { session: trx });
-
-      await Token.deleteOne({ _id: token._id }, { session: trx });
-    });
-
-    const payload: ILog = {
-      action: 'COMPLETE_EMAIL_VERIFICATION',
-      data: undefined,
-      status: LogStatus.SUCCESS,
-      timestamp: timestamp,
-      ipAddress: ipAddress,
-      userAgent: userAgent,
-      requestId: requestId,
-      description: 'email verification successful',
-      details: { userId: user.id },
+    const logContext = {
+      service: 'auth',
+      operation: 'completeEmailVerification',
+      ...context,
+      userId: record.id
     };
-    this._logger.debug(payload.description, payload);
+    try {
+      this._logger.debug('Completing email verification process', logContext);
 
-    await this._redis.addJob(RedisJob.SEND_WELCOME_EMAIL, {
-      data: {
-        name: user.firstName,
-        email: user.email,
-      },
-      ip: ipAddress,
-      userAgent: userAgent,
-      timestamp: timestamp,
-      requestId: requestId,
-    });
+      const user: UserDocument | null = await this._userService.findOne({ id: record.id });
+      if (!user) {
+        this.logSecurityEvent({
+          status: LogStatus.FAILED,
+          description: 'Email verification failure: User not found',
+          details: { userId: record.id },
+          context: logContext
+        });
+        throw new Exception('User does not exist', Exception.NOT_FOUND);
+      }
+
+      const token = await Token.findOne({ 
+        token: dto.otp,
+        user: user._id,
+        type: TokenType.OTP
+      });
+      if (!token) {
+        this.logSecurityEvent({
+          status: LogStatus.FAILED,
+          description: 'Email verification failure: Invalid OTP',
+          details: { userId: user.id },
+          context: logContext
+        });
+        throw new Exception('One-Time Passcode does not exist', Exception.NOT_FOUND);
+      }
+
+      if (token.usedAt) {
+        this.logSecurityEvent({
+          status: LogStatus.FAILED,
+          description: 'Email verification failure: OTP already used',
+          details: { userId: user.id },
+          context: logContext
+        });
+        throw new Exception('Verification code already used', Exception.CONFLICT);
+      }
+
+      if (new Date() > token.validTill) {
+        this.logSecurityEvent({
+          status: LogStatus.FAILED,
+          description: 'Email verification failure: OTP expired',
+          details: { userId: user.id },
+          context: logContext
+        });
+        await Token.deleteOne({ _id: token._id });
+        throw new Exception('Verification code expired', Exception.UNAUTHORIZED);
+      }
+
+      await this._conn.transaction(async trx => {
+        await Promise.all([
+          User.updateOne(
+            { _id: user._id },
+            { $set: { verifiedAt: new Date() } },
+            { session: trx }
+          ),
+          Token.deleteOne({ _id: token._id }, { session: trx })
+        ]);
+      });
+
+      this.logSecurityEvent({
+        status: LogStatus.SUCCESS,
+        description: 'Email verification completed successfully',
+        details: { userId: user.id },
+        context: logContext
+      });
+
+      await this._redis.addJob(RedisJob.SEND_WELCOME_EMAIL, {
+        data: {
+          username: user.username,
+          email: user.email,
+          verificationDate: new Date().toISOString()
+        },
+          ip: context.ipAddress,
+          userAgent: context.userAgent,
+          timestamp: context.timestamp,
+          requestId: context.requestId 
+      });
+  
+    } catch (error) {
+      this.logSecurityEvent({
+        status: LogStatus.FAILED,
+        description: 'Email verification system error',
+        details: { error: error.message },
+        context: logContext
+      });
+      throw this.handleAuthError(error);
+    }
   }
 
   public async forgotPassword(
     dto: ForgotPasswordDto,
-    ipAddress: string,
-    userAgent: string,
-    timestamp: string,
-    requestId: string,
+    context: { ipAddress: string; userAgent: string; timestamp: string; requestId: string }
   ): Promise<void> {
-    const user: UserDocument | null = await this._userService.findOne({ email: dto.email });
-    if (!user) {
-      const payload: ILog = {
-        action: 'FORGOT_PASSWORD',
-        data: undefined,
+    const logContext = {
+      service: 'auth',
+      operation: 'forgotPassword',
+      ...context,
+      email: dto.email
+    };
+    try {
+      this._logger.debug('Initiating password reset process', logContext);
+
+      // Rate limiting check
+      const attemptKey = `pwd_reset:${dto.email}`;
+      const attempts = await this._redis.client.incr(attemptKey);
+      if (attempts > this.MAX_PASSWORD_RESET_ATTEMPTS) {
+        this.logSecurityEvent({
+          status: LogStatus.FAILED,
+          description: 'Password reset rate limit exceeded',
+          details: { attempts },
+          context: logContext
+        });
+        throw new Exception('Too many reset attempts', Exception.TOO_MANY_REQUESTS);
+      }
+      await this._redis.client.expire(attemptKey, 3600);
+
+      const user: UserDocument | null = await this._userService.findOne({ email: dto.email });
+      if (!user) {
+        this.logSecurityEvent({
+          status: LogStatus.FAILED,
+          description: 'Password reset request processed',
+          details: { email: dto.email },
+          context: logContext
+        });
+        return;
+      }
+
+      const rawToken = SecurityUtils.generateSecureToken();
+      const hashedToken = await bcrypt.hash(rawToken, 10);
+      
+      await this._tokenService.create(
+        user.id,
+        hashedToken,
+        TokenType.RESET,
+        this.PASSWORD_RESET_EXPIRATION
+      );
+
+
+      // Construct secure reset link
+      const resetLink = new URL(dto.redirectUrl);
+      resetLink.searchParams.set('token', encodeURIComponent(rawToken));
+      resetLink.searchParams.set('userId', user.id);
+
+
+      await this._redis.addJob(RedisJob.SEND_PASSWORD_RESET_LINK, {
+        data: {
+          username: user.username,
+          email: user.email,
+          link: resetLink.toString(),
+          expiresIn: this.PASSWORD_RESET_EXPIRATION
+        },
+        ip: context.ipAddress,
+        userAgent: context.userAgent,
+        timestamp: context.timestamp,
+        requestId: context.requestId
+      });
+
+      this.logSecurityEvent({
+        status: LogStatus.SUCCESS,
+        description: 'Password reset initiated',
+        details: { userId: user.id },
+        context: logContext
+      });
+    } catch (error) {
+      this.logSecurityEvent({
         status: LogStatus.FAILED,
-        timestamp: timestamp,
-        ipAddress: ipAddress,
-        userAgent: userAgent,
-        requestId: requestId,
-        description: 'failed to initiate password reset - user not found',
-        details: { email: dto.email },
-      };
-      this._logger.error(payload.description, payload);
-      throw new Exception('User does not exist', Exception.NOT_FOUND);
+        description: 'Password reset system error',
+        details: { error: error.message },
+        context: logContext
+      });
+      throw this.handleAuthError(error);
     }
-
-    const expiryInMinutes = 20;
-    const resetJwt = Default.GENERATE_PASSWORD_RESET_TOKEN(user.id, user.email, dto.profileType, expiryInMinutes);
-    const token: TokenDocument = await this._tokenService.create(user.id, resetJwt, TokenType.RESET, expiryInMinutes);
-
-    await this._redis.addJob(RedisJob.SEND_PASSWORD_RESET_LINK, {
-      data: {
-        name: user.firstName,
-        email: user.email,
-        link: dto.redirectUrl + '?token=' + token.token,
-        expiresIn: new Date(token.validTill).getMinutes() - new Date().getMinutes(),
-      },
-      ip: ipAddress,
-      userAgent: userAgent,
-      timestamp: timestamp,
-      requestId: requestId,
-    });
   }
 
   public async verifyPasswordResetToken(
     token: string,
-    ipAddress: string,
-    userAgent: string,
-    timestamp: string,
-    requestId: string,
+    userId: string,
+    context: { ipAddress: string; userAgent: string; timestamp: string; requestId: string }
   ): Promise<void> {
-    const userToken: TokenDocument | null = await Token.findOne({ token: token, type: TokenType.RESET });
-    if (!userToken) {
-      const payload: ILog = {
-        action: 'VERIFY_PASSWORD_RESET_TOKEN',
-        data: undefined,
-        status: LogStatus.FAILED,
-        timestamp: timestamp,
-        ipAddress: ipAddress,
-        userAgent: userAgent,
-        requestId: requestId,
-        description: 'failed to verify password reset token',
-        details: { token: token },
-      };
-      this._logger.error(payload.description, payload);
-      throw new Exception('Invalid token issuer', Exception.UNAUTHORIZED);
+    const logContext = {
+      service: 'auth',
+      operation: 'verifyPasswordResetToken',
+      ...context,
+      userId
+    };
+
+    try{
+      this._logger.debug('Verifying password reset token', logContext);
+
+      const user: UserDocument | null = await this._userService.findOne({ id: userId });
+      // const userToken: TokenDocument | null = await Token.findOne({ token: token, type: TokenType.RESET });
+      if (!user) {
+        this.logSecurityEvent({
+          status: LogStatus.FAILED,
+          description: 'Token verification failure: User not found',
+          details: {},
+          context: logContext
+        });
+        throw new Exception('Invalid reset token', Exception.UNAUTHORIZED);
+      }
+
+      const tokenDoc = await Token.findOne({
+        user: user._id,
+        type: TokenType.RESET
+      });
+
+      if (!tokenDoc || !(await bcrypt.compare(token, tokenDoc.token))) {
+        this.logSecurityEvent({
+          status: LogStatus.FAILED,
+          description: 'Token verification failure: Invalid token',
+          details: {},
+          context: logContext
+        });
+        throw new Exception('Invalid reset token', Exception.UNAUTHORIZED);
+      }
+
+      if (tokenDoc.usedAt) {
+        this.logSecurityEvent({
+          status: LogStatus.FAILED,
+          description: 'Token verification failure: Already used',
+          details: {},
+          context: logContext
+        });
+        throw new Exception('Reset token already used', Exception.CONFLICT);
+      }
+
+      if (new Date() > tokenDoc.validTill) {
+        await Token.deleteOne({ _id: tokenDoc._id });
+        this.logSecurityEvent({
+          status: LogStatus.FAILED,
+          description: 'Token verification failure: Expired',
+          details: {},
+          context: logContext
+        });
+        throw new Exception('Reset token expired', Exception.UNAUTHORIZED);
+      }
+
+      await Token.updateOne(
+        { _id: tokenDoc._id },
+        { $set: { usedAt: new Date() } }
+      );
+
+      this.logSecurityEvent({
+        status: LogStatus.SUCCESS,
+        description: 'Token verification successful',
+        details: {},
+        context: logContext
+      });
     }
-
-    if (userToken.usedAt) {
-      const payload: ILog = {
-        action: 'VERIFY_PASSWORD_RESET_TOKEN',
-        data: undefined,
+    catch (error) {
+      this.logSecurityEvent({
         status: LogStatus.FAILED,
-        timestamp: timestamp,
-        ipAddress: ipAddress,
-        userAgent: userAgent,
-        requestId: requestId,
-        description: 'failed to verify password reset token - token has already been used',
-        details: { token: token },
-      };
-      this._logger.error(payload.description, payload);
-      throw new Exception('Token has already been used', Exception.UNAUTHORIZED);
+        description: 'Token verification system error',
+        details: { error: error.message },
+        context: logContext
+      });
+      throw this.handleAuthError(error);
     }
-
-    if (new Date(userToken.validTill) < new Date()) {
-      const payload: ILog = {
-        action: 'VERIFY_PASSWORD_RESET_TOKEN',
-        data: undefined,
-        status: LogStatus.FAILED,
-        timestamp: timestamp,
-        ipAddress: ipAddress,
-        userAgent: userAgent,
-        requestId: requestId,
-        description: 'failed to verify password reset token - token has expired',
-        details: { token: token },
-      };
-      this._logger.error(payload.description, payload);
-
-      await Token.deleteOne({ _id: userToken._id });
-
-      throw new Exception('Token has expired', Exception.UNAUTHORIZED);
-    }
-
-    await Token.updateOne({ _id: userToken._id }, { usedAt: new Date() });
   }
 
   public async resetPassword(
     dto: ResetPasswordDto,
-    ipAddress: string,
-    userAgent: string,
-    timestamp: string,
-    requestId: string,
+    context: { ipAddress: string; userAgent: string; timestamp: string; requestId: string }
   ): Promise<void> {
-    const decodedToken = jwt.verify(dto.token, env.jwt_password_reset_secret, {
-      ignoreExpiration: true,
-    }) as jwt.JwtPayload;
-    if (!decodedToken || decodedToken.type !== 'password-reset') {
-      const payload: ILog = {
-        action: 'RESET_PASSWORD',
-        data: undefined,
-        status: LogStatus.FAILED,
-        timestamp: timestamp,
-        ipAddress: ipAddress,
-        userAgent: userAgent,
-        requestId: requestId,
-        description: 'failed to reset password - invalid token',
-        details: { token: dto.token },
-      };
-      this._logger.error(payload.description, payload);
-      throw new Exception('Invalid token', Exception.UNAUTHORIZED);
-    }
+    const logContext = {
+      service: 'auth',
+      operation: 'resetPassword',
+      ...context,
+      userId: dto.userId
+    };
+    try{
+      this._logger.debug('Processing password reset', logContext);
 
-    const userToken: TokenDocument | null = await Token.findOne({
-      user: Types.ObjectId.createFromHexString(decodedToken.sub!),
-      token: dto.token,
-      type: TokenType.RESET,
-    }).populate('user');
-    if (!userToken) {
-      const payload: ILog = {
-        action: 'RESET_PASSWORD',
-        data: undefined,
-        status: LogStatus.FAILED,
-        timestamp: timestamp,
-        ipAddress: ipAddress,
-        userAgent: userAgent,
-        requestId: requestId,
-        description: 'failed to reset password - token does not exist',
-        details: { token: dto.token },
-      };
-      this._logger.error(payload.description, payload);
-      throw new Exception('Invalid token', Exception.UNAUTHORIZED);
-    }
+      // Validate password complexity
+      if (!SecurityUtils.validatePasswordComplexity(dto.newPassword)) {
+        this.logSecurityEvent({
+          status: LogStatus.FAILED,
+          description: 'Password reset failure: Weak password',
+          details: {},
+          context: logContext
+        });
+        throw new Exception('Password does not meet complexity requirements', Exception.UNPROCESSABLE_ENTITY);
+      }
 
-    if (!userToken.usedAt) {
-      const payload: ILog = {
-        action: 'RESET_PASSWORD',
-        data: undefined,
-        status: LogStatus.FAILED,
-        timestamp: timestamp,
-        ipAddress: ipAddress,
-        userAgent: userAgent,
-        requestId: requestId,
-        description: 'failed to reset password - token has not been verified',
-        details: { token: dto.token },
-      };
-      this._logger.error(payload.description, payload);
-      throw new Exception('Token has not been verified', Exception.UNAUTHORIZED);
-    }
+      const user: UserDocument | null = await this._userService.findOne({ id: dto.userId });
+      if (!user) {
+        this.logSecurityEvent({
+          status: LogStatus.FAILED,
+          description: 'Password reset failure: User not found',
+          details: {},
+          context: logContext
+        });
+        throw new Exception('User account not found', Exception.NOT_FOUND);
+      }
 
-    const user = userToken.user as UserDocument | null;
-    if (!user) {
-      const payload: ILog = {
-        action: 'RESET_PASSWORD',
-        data: undefined,
-        status: LogStatus.FAILED,
-        timestamp: timestamp,
-        ipAddress: ipAddress,
-        userAgent: userAgent,
-        requestId: requestId,
-        description: 'failed to reset password - user not found',
-        details: { userId: userToken.user.id },
-      };
-      this._logger.error(payload.description, payload);
-      throw new Exception('User does not exist', Exception.NOT_FOUND);
-    }
+      // Verify valid token exists
+      const tokenDoc = await Token.findOne({
+        user: user._id,
+        token: dto.token,
+        type: TokenType.RESET,
+        usedAt: { $exists: true }
+      });
 
-    const salt = await bcrypt.genSalt(Number(env.bcrypt_rounds));
-    const password = await bcrypt.hash(dto.password, salt);
-    await this._conn.transaction(async trx => {
-      await User.updateOne({ _id: user._id }, { password: password }, { session: trx });
+      if (!tokenDoc) {
+        this.logSecurityEvent({
+          status: LogStatus.FAILED,
+          description: 'Password reset failure: Invalid or unused token',
+          details: {},
+          context: logContext
+        });
+        throw new Exception('Reset token not verified', Exception.UNAUTHORIZED);
+      }
 
-      await Token.deleteOne({ _id: userToken._id }, { session: trx });
+      // Check for password reuse(history)
+      if (await this._userService.isPreviousPassword(dto.userId, dto.newPassword)) {
+        this.logSecurityEvent({
+          status: LogStatus.FAILED,
+          description: 'Password reset failure: Reused password',
+          details: {},
+          context: logContext
+        });
+        throw new Exception('Cannot reuse previous passwords', Exception.CONFLICT);
+      }
+
+
+      // Hash new password
+      const salt = await bcrypt.genSalt(Number(env.bcrypt_rounds));
+      const passwordHash = await bcrypt.hash(dto.newPassword, salt);
+      
+
+      await this._conn.transaction(async trx => {
+        await Promise.all([
+          User.updateOne(
+            { _id: user._id },
+            { 
+              $set: { password: passwordHash },
+              $push: { passwordHistory: { $each: [passwordHash], $slice: -5 } }
+            },
+            { session: trx }
+          ),
+          this._tokenService.invalidateUserTokens(user.id, [TokenType.RESET], trx),
+          this._redis.deleteUserSessions(user.id)
+        ]);
+      });
+
+      this.logSecurityEvent({
+        status: LogStatus.SUCCESS,
+        description: 'Password reset successful',
+        details: {},
+        context: logContext
+      });
+
+      await this._redis.addJob(RedisJob.SEND_PASSWORD_RESET_SUCCESS_EMAIL, {
+        data: {
+          username: user.username,
+          email: user.email,
+          timestamp: new Date().toISOString(),
+          name: user.firstName,
+        },
+        ip: context.ipAddress,
+        userAgent: context.userAgent,
+        timestamp: context.timestamp,
+        requestId: context.requestId,
+      });
+  }catch(error){
+    this.logSecurityEvent({
+      status: LogStatus.FAILED,
+      description: 'Password',
+      details: { error: error.message },
+      context: logContext
     });
-
-    await this._redis.addJob(RedisJob.SEND_PASSWORD_RESET_SUCCESS_EMAIL, {
-      data: {
-        name: user.firstName,
-        email: user.email,
-      },
-      ip: ipAddress,
-      userAgent: userAgent,
-      timestamp: timestamp,
-      requestId: requestId,
-    });
-
-    const keys = await this._redis.client.keys(`${user.id}*`);
-    for (const key of keys) {
-      await this._redis.client.del(key);
-    }
   }
+}
 
   public async logout(
     record: IAuthRecord,
-    ipAddress: string,
-    userAgent: string,
-    timestamp: string,
-    requestId: string,
+    context: { ipAddress: string; userAgent: string; timestamp: string; requestId: string }
   ): Promise<void> {
-    await this._redis.client.del(`${record.id}:session-${record.lastLogin}`);
-
-    const payload: ILog = {
-      action: 'LOGOUT',
-      data: undefined,
-      status: LogStatus.SUCCESS,
-      timestamp: timestamp,
-      ipAddress: ipAddress,
-      userAgent: userAgent,
-      requestId: requestId,
-      description: 'user logged out successfully',
-      details: { userId: record.id },
+    const logContext = {
+      service: 'auth',
+      operation: 'logout',
+      ...context,
+      userId: record.id
     };
-    this._logger.debug(payload.description, payload);
+    try{
+      this._logger.debug('Logging out user', logContext);
+
+      await this._redis.client.del(`${record.id}:session-${record.lastLogin}`);
+
+      this.logSecurityEvent({
+        status: LogStatus.SUCCESS,
+        description: 'Logout successful',
+        details: { userId: record.id },
+        context: logContext
+      });
+
+    } catch (error) {
+      this.logSecurityEvent({
+        status: LogStatus.FAILED,
+        description: 'Logout system error',
+        details: { error: error.message },
+        context: logContext
+      });
+      throw this.handleAuthError(error);
+    }
   }
 
   public async logoutFromAllDevices(
     record: IAuthRecord,
-    ipAddress: string,
-    userAgent: string,
-    timestamp: string,
-    requestId: string,
+    context: { ipAddress: string; userAgent: string; timestamp: string; requestId: string }
   ): Promise<void> {
-    const keys = await this._redis.client.keys(`${record.id}*`);
-    for (const key of keys) {
-      await this._redis.client.del(key);
-    }
-
-    const payload: ILog = {
-      action: 'LOGOUT_FROM_ALL_DEVICES',
-      data: undefined,
-      status: LogStatus.SUCCESS,
-      timestamp: timestamp,
-      ipAddress: ipAddress,
-      userAgent: userAgent,
-      requestId: requestId,
-      description: 'user logged out from all devices successfully',
-      details: { userId: record.id },
+    const logContext = {
+      service: 'auth',
+      operation: 'logoutFromAllDevices',
+      ...context,
+      userId: record.id
     };
-    this._logger.debug(payload.description, payload);
+    try {
+      this._logger.debug('Logging out user from all devices', logContext);
+
+      const keys = await this._redis.client.keys(`${record.id}*`);
+      for (const key of keys) {
+        await this._redis.client.del(key);
+      }
+
+      this.logSecurityEvent({
+        status: LogStatus.SUCCESS,
+        description: 'Logout from all devices successful',
+        details: { userId: record.id },
+        context: logContext
+      });
+    } catch (error) {
+      this.logSecurityEvent({
+        status: LogStatus.FAILED,
+        description: 'Logout from all devices system error',
+        details: { error: error.message },
+        context: logContext
+      });
+    }
   }
 }

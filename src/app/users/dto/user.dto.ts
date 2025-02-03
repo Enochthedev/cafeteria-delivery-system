@@ -13,9 +13,18 @@ export class CreateUserDto {
   @IsString({ message: 'password is required' })
   readonly password: string;
 
-  @IsString({ message: 'phoneNumber must be a string' })
-  @IsOptional()
-  readonly phoneNumber?: string;
+  @IsNumber ({}, { message: 'callingCode must be a number' })
+  readonly callingCode?: number;
+
+  @IsNumber ({}, { message: 'Phone Number is required' })
+  readonly phoneNumber?: number;
+
+  @IsString({ message: 'firstName is required' })
+  readonly firstName: string;
+
+  @IsString({ message: 'lastName is required' })
+  readonly lastName: string;
+
 
   @IsString({ message: 'campus is required' })
   readonly campus: string;

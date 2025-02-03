@@ -42,6 +42,7 @@ export interface IError {
 }
 
 export interface ILog {
+  service?: string;
   action: string;
   data?: object;
   description: string;

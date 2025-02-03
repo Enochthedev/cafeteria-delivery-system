@@ -14,11 +14,13 @@
   "author": "wave/Constellation",
   "license": "ISC",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.740.0",
     "@types/multer": "^1.4.12",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.31.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "class-validator-mongo-object-id": "^1.4.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.1",
@@ -33,7 +35,8 @@
     "mongoose": "^8.9.3",
     "multer": "^1.4.5-lts.1",
     "nodemailer": "^6.9.16",
-    "reflect-metadata": "^0.2.2"
+    "reflect-metadata": "^0.2.2",
+    "zxcvbn": "^4.4.2"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -43,6 +46,7 @@
     "@types/lodash": "^4.17.13",
     "@types/mongoose": "^5.11.97",
     "@types/nodemailer": "^6.4.17",
+    "@types/zxcvbn": "^4.4.5",
     "nodemon": "^3.1.7",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.2"

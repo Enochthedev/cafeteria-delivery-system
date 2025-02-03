@@ -30,13 +30,13 @@ export class AuthController extends BaseController {
   public async register(req: Request, res: Response) {
     const requestId: string = Default.GENERATE_REQUEST_ID();
     const timestamp: string = new Date().toUTCString();
-    const ip: string = req.ip as string;
+    const ipAddress: string = req.ip as string;
     const userAgent: string = req.headers['user-agent'] as string;
 
     try {
       const dto = plainToInstance(CreateUserDto, req.body);
       await validateOrReject(dto);
-      const token = await this._userService.createUser(dto, ip, userAgent, timestamp, requestId);
+      const token = await this._userService.createUser(dto, {ipAddress, userAgent, timestamp, requestId});
       this.sendSuccess(res, token, 'User profile created', 201, timestamp, requestId);
     } catch (err) {
       this.sendError(res, requestId, err);
@@ -47,12 +47,12 @@ export class AuthController extends BaseController {
   public async login(req: Request, res: Response) {
     const requestId: string = Default.GENERATE_REQUEST_ID();
     const timestamp: string = new Date().toUTCString();
-    const ip: string = req.ip as string;
+    const ipAddress: string = req.ip as string;
     const userAgent: string = req.headers['user-agent'] as string;
     try {
       const dto = plainToInstance(LoginDto, req.body);
       await validateOrReject(dto);
-      const loginObject = await this._authService.login(dto, ip, userAgent, timestamp, requestId);
+      const loginObject = await this._authService.login(dto, {ipAddress, userAgent, timestamp, requestId});
       this.sendSuccess(res, loginObject, 'Login successful', 200, timestamp, requestId);
     } catch (err) {
       this.sendError(res, requestId, err);
@@ -63,11 +63,11 @@ export class AuthController extends BaseController {
   public async startEmailVerification(req: Request, res: Response) {
     const requestId: string = Default.GENERATE_REQUEST_ID();
     const timestamp: string = new Date().toUTCString();
-    const ip: string = req.ip as string;
+    const ipAddress: string = req.ip as string;
     const userAgent: string = req.headers['user-agent'] as string;
     const record = req.user as IAuthRecord;
     try {
-      const email = await this._authService.startEmailVerification(record, ip, userAgent, timestamp, requestId);
+      const email = await this._authService.startEmailVerification(record,{ ipAddress, userAgent, timestamp, requestId});
       this.sendSuccess(res, email, 'Email verification started', 200, timestamp, requestId);
     } catch (err) {
       this.sendError(res, requestId, err);
@@ -78,13 +78,13 @@ export class AuthController extends BaseController {
   public async verifyEmail(req: Request, res: Response) {
     const requestId: string = Default.GENERATE_REQUEST_ID();
     const timestamp: string = new Date().toUTCString();
-    const ip: string = req.ip as string;
+    const ipAddress: string = req.ip as string;
     const userAgent: string = req.headers['user-agent'] as string;
     const record = req.user as IAuthRecord;
     try {
       const dto = plainToInstance(TokenDto, req.body);
       await validateOrReject(dto);
-      await this._authService.completeEmailVerification(record, dto, ip, userAgent, timestamp, requestId);
+      await this._authService.completeEmailVerification(record, dto, {ipAddress, userAgent, timestamp, requestId});
       this.sendSuccess(res, null, 'Email verified', 200, timestamp, requestId);
     } catch (err) {
       this.sendError(res, requestId, err);
@@ -95,12 +95,12 @@ export class AuthController extends BaseController {
   public async forgotPassword(req: Request, res: Response) {
     const requestId: string = Default.GENERATE_REQUEST_ID();
     const timestamp: string = new Date().toUTCString();
-    const ip: string = req.ip as string;
+    const ipAddress: string = req.ip as string;
     const userAgent: string = req.headers['user-agent'] as string;
     try {
       const dto = plainToInstance(ForgotPasswordDto, req.body);
       await validateOrReject(dto);
-      await this._authService.forgotPassword(dto, ip, userAgent, timestamp, requestId);
+      await this._authService.forgotPassword(dto, {ipAddress, userAgent, timestamp, requestId});
       this.sendSuccess(res, null, 'Password reset link sent', 200, timestamp, requestId);
     } catch (err) {
       this.sendError(res, requestId, err);
@@ -111,12 +111,13 @@ export class AuthController extends BaseController {
   public async verifyResetToken(req: Request, res: Response) {
     const requestId: string = Default.GENERATE_REQUEST_ID();
     const timestamp: string = new Date().toUTCString();
-    const ip: string = req.ip as string;
+    const userId: string = req.params.userId as string;
+    const ipAddress: string = req.ip as string;
     const userAgent: string = req.headers['user-agent'] as string;
     try {
       const dto = plainToInstance(VerifyPasswordResetTokenDto, req.body);
       await validateOrReject(dto);
-      await this._authService.verifyPasswordResetToken(dto.token, ip, userAgent, timestamp, requestId);
+      await this._authService.verifyPasswordResetToken(dto.token, userId, {ipAddress, userAgent, timestamp, requestId});
       this.sendSuccess(res, null, 'Token verified', 200, timestamp, requestId);
     } catch (err) {
       this.sendError(res, requestId, err);
@@ -127,12 +128,12 @@ export class AuthController extends BaseController {
   public async resetPassword(req: Request, res: Response) {
     const requestId: string = Default.GENERATE_REQUEST_ID();
     const timestamp: string = new Date().toUTCString();
-    const ip: string = req.ip as string;
+    const ipAddress: string = req.ip as string;
     const userAgent: string = req.headers['user-agent'] as string;
     try {
       const dto = plainToInstance(ResetPasswordDto, req.body);
       await validateOrReject(dto);
-      await this._authService.resetPassword(dto, ip, userAgent, timestamp, requestId);
+      await this._authService.resetPassword(dto, {ipAddress, userAgent, timestamp, requestId});
       this.sendSuccess(res, null, 'Password reset successful', 200, timestamp, requestId);
     } catch (err) {
       this.sendError(res, requestId, err);
@@ -143,10 +144,10 @@ export class AuthController extends BaseController {
   public async logout(req: Request, res: Response) {
     const requestId: string = Default.GENERATE_REQUEST_ID();
     const timestamp: string = new Date().toUTCString();
-    const ip: string = req.ip as string;
+    const ipAddress: string = req.ip as string;
     const userAgent: string = req.headers['user-agent'] as string;
     try {
-      await this._authService.logout(req.user as IAuthRecord, ip, userAgent, timestamp, requestId);
+      await this._authService.logout(req.user as IAuthRecord, {ipAddress, userAgent, timestamp, requestId});
       this.sendSuccess(res, null, 'Logout successful', 200, timestamp, requestId);
     } catch (err) {
       this.sendError(res, requestId, err);
@@ -157,10 +158,10 @@ export class AuthController extends BaseController {
   public async logoutAll(req: Request, res: Response) {
     const requestId: string = Default.GENERATE_REQUEST_ID();
     const timestamp: string = new Date().toUTCString();
-    const ip: string = req.ip as string;
+    const ipAddress: string = req.ip as string;
     const userAgent: string = req.headers['user-agent'] as string;
     try {
-      await this._authService.logoutFromAllDevices(req.user as IAuthRecord, ip, userAgent, timestamp, requestId);
+      await this._authService.logoutFromAllDevices(req.user as IAuthRecord, {ipAddress, userAgent, timestamp, requestId});
       this.sendSuccess(res, null, 'Logged out from all devices', 200, timestamp, requestId);
     } catch (err) {
       this.sendError(res, requestId, err);

@@ -9,6 +9,9 @@ export class Exception extends Error {
   static CONFLICT: number = 409;
   static UNPROCESSABLE_ENTITY: number = 422;
   static SERVER_ERROR: number = 500;
+  static SERVICE_UNAVAILABLE: number = 503;
+  static OK: number = 200;
+  static TOO_MANY_REQUESTS: number = 429;
 
   constructor(message: string, code: number, err: any = {}) {
     super(message);

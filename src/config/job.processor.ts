@@ -50,6 +50,7 @@ export async function processJobs(job: Job<JobData>, mailClient: MailClient, sto
           timestamp: timestamp,
           status: LogStatus.SUCCESS,
           details: {},
+          service: 'job-processor'
         };
         logger.debug(`job ${job.id} processed successfully`, payload);
 
@@ -94,6 +95,7 @@ export async function processJobs(job: Job<JobData>, mailClient: MailClient, sto
           timestamp: timestamp,
           status: LogStatus.SUCCESS,
           details: {},
+          service: 'job-processor'
         };
         logger.debug(`job ${job.id} processed successfully`, payload);
 
@@ -123,6 +125,7 @@ export async function processJobs(job: Job<JobData>, mailClient: MailClient, sto
           timestamp: timestamp,
           status: LogStatus.SUCCESS,
           details: {},
+          service: 'job-processor'
         };
         logger.debug(`job ${job.id} processed successfully`, payload);
 
@@ -143,6 +146,7 @@ export async function processJobs(job: Job<JobData>, mailClient: MailClient, sto
           timestamp: timestamp,
           status: LogStatus.SUCCESS,
           details: {},
+          service: ''
         };
         logger.debug(`job ${job.id} processed successfully`, payload);
         break;
@@ -161,6 +165,7 @@ export async function processJobs(job: Job<JobData>, mailClient: MailClient, sto
       timestamp: job.data.timestamp,
       status: LogStatus.FAILED,
       details: { error: error },
+      service: 'job-processor'
     };
     logger.error(`job ${job.id} failed`, payload);
   }

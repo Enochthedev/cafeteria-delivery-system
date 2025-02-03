@@ -37,17 +37,20 @@ export class AuthMiddleware extends BaseMiddleware {
     this._redisClient = redis.client;
   }
 
+  
   public async handler(req: Request, res: Response, next: NextFunction) {
     const requestId: string = Default.GENERATE_REQUEST_ID();
     const timestamp: string = new Date().toUTCString();
     const ip: string = String(req.headers['x-forwarded-for']) || req.ip as string;
     const userAgent: string = req.get('User-Agent') as string;
 
+    
 
     const token = req.header('Authorization')?.replace('Bearer ', '');
     if (!token) {
       const payload: ILog = {
         action: 'AUTHORIZATION_USER',
+        service: 'auth',
         data: undefined,
         description: 'no token provided, authorization denied',
         ipAddress: ip,

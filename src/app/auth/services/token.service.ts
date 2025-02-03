@@ -23,4 +23,15 @@ export class TokenService {
       validTill: new Date(Date.now() + (expiresInMinutes * 60_000)),
     }).save({ session: session });
   }
+
+  public async invalidateUserTokens(
+    userId: string,
+    types: TokenType[] = [TokenType.RESET],
+    session?: ClientSession
+  ): Promise<void> {
+    await Token.deleteMany({
+      user: userId,
+      type: { $in: types }
+    }).session(session || null);
+  }
 }
